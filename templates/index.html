@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hệ Thống Lịch Học Tự Động</title>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js'></script>
+    <style>
+        :root {
+            /* Hệ màu Dark Mode xịn xò (Tone Xanh Đen) */
+            --bg-color: #0f172a;       /* Nền toàn trang */
+            --container-bg: #1e293b;   /* Nền của khung lịch/bảng */
+            --text-main: #f8fafc;      /* Màu chữ chính (Trắng xám) */
+            --text-muted: #94a3b8;     /* Màu chữ phụ (Xám nhạt) */
+            --border-color: #334155;   /* Màu viền */
+            --primary: #3b82f6;        /* Xanh dương chủ đạo */
+            --primary-hover: #2563eb;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color); color: var(--text-main);
+            margin: 0; padding: 0; min-height: 100vh;
+        }
+
+        .content-wrapper { 
+            padding: 20px; display: flex; flex-direction: column; 
+            width: 100%; box-sizing: border-box; 
+        }
+
+        /* --- SỬA LỖI LỆCH TRÁI & ÉP TRÀN FULL MÀN HÌNH --- */
+        #calendar-wrapper, .grade-container {
+            display: none;
+            width: 100%;
+            max-width: 100%; /* Đổi từ 1200px thành 100% để tràn viền */
+            background: var(--container-bg);
+            padding: 25px; border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            box-sizing: border-box; border: 1px solid var(--border-color);
+            margin-top: 20px;
+        }
+
+        /* --- CSS THANH ĐIỀU HƯỚNG (NAVBAR) --- */
+        .top-nav {
+            background-color: var(--container-bg);
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            overflow-x: auto; border-bottom: 1px solid var(--border-color);
+        }
+        .nav-left, .nav-right { display: flex; align-items: center; gap: 5px; }
+        .nav-link {
+            color: var(--text-muted); text-decoration: none; padding: 18px 15px;
+            font-size: 15px; font-weight: 600; border-bottom: 3px solid transparent;
+            transition: 0.3s; cursor: pointer; white-space: nowrap;
+        }
+        .nav-link:hover { color: var(--text-main); }
+        .nav-link.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+        /* --- CSS CÁC KHỐI ĐĂNG NHẬP --- */
+        /* --- KHUNG ĐĂNG NHẬP DARK MODE CHUẨN --- */
+        /* --- KHUNG ĐĂNG NHẬP DARK MODE TUYỆT ĐỐI --- */
+        .auth-container {
+            background-color: var(--container-bg) !important; /* Ép nhận nền tối màu xanh đen */
+            color: var(--text-main) !important;
+            padding: 30px; 
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6); 
+            width: 100%; 
+            max-width: 400px;
+            text-align: center; 
+            margin: 40px auto; 
+            border: 1px solid var(--border-color) !important;
+        }
+        .auth-container h2 { color: var(--text-main) !important; margin-top: 0; margin-bottom: 20px; }
+        .auth-tabs { display: flex; border-bottom: 2px solid var(--border-color); margin-bottom: 20px; }
+        .tab-btn {
+            flex: 1; padding: 12px; background: none; border: none; outline: none;
+            font-weight: 700; font-size: 15px; color: var(--text-muted); cursor: pointer;
+            transition: 0.3s; border-bottom: 3px solid transparent; margin-bottom: -2px;
+        }
+        .tab-btn:hover { color: var(--text-main); }
+        .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+        
+        .input-group { margin-bottom: 15px; text-align: left; }
+        .input-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; color: var(--text-muted); }
+        .input-group input { 
+            width: 100%; padding: 12px; border: 1px solid var(--border-color); 
+            border-radius: 6px; box-sizing: border-box; font-size: 14px;
+            background-color: var(--bg-color); color: var(--text-main);
+        }
+        .input-group input::placeholder { color: #475569; }
+        .submit-btn {
+            width: 100%; padding: 12px; background-color: var(--primary);
+            color: white; border: none; border-radius: 6px; font-weight: bold;
+            cursor: pointer; transition: 0.2s; font-size: 15px; margin-top: 5px;
+        }
+        .submit-btn:hover { background-color: var(--primary-hover); }
+        .submit-btn:disabled { background-color: #475569; cursor: not-allowed; color: #94a3b8; }
+        .error-msg { color: #f87171; font-size: 13px; margin-top: 10px; display: none; font-weight: 500; }
+
+        /* --- ÉP FULLCALENDAR SANG DARK MODE --- */
+        .fc { color: var(--text-main) !important; }
+        .fc-theme-standard td, .fc-theme-standard th { border-color: var(--border-color) !important; }
+        .fc-theme-standard .fc-scrollgrid { border-color: var(--border-color) !important; }
+        .fc-col-header-cell { background-color: #0f172a !important; color: var(--text-main); padding: 10px 0; }
+        .fc-day-today { background-color: rgba(59, 130, 246, 0.15) !important; } /* Sáng nhẹ ô ngày hiện tại */
+        .fc-daygrid-day-number { color: var(--text-main) !important; padding: 8px !important; }
+        .fc-button-primary { background-color: var(--primary) !important; border-color: var(--primary) !important; }
+        .fc-button-primary:not(:disabled):active, .fc-button-primary:not(:disabled).fc-button-active {
+            background-color: var(--primary-hover) !important; border-color: var(--primary-hover) !important;
+        }
+        .fc-daygrid-event { margin-top: 3px !important; border-radius: 4px !important; }
+        .fc-toolbar-title { font-weight: 700 !important; }
+
+        /* --- BẢNG ĐIỂM DARK MODE --- */
+        .table-responsive { margin-top: 20px; overflow-x: auto; border-radius: 8px; border: 1px solid var(--border-color); }
+        .styled-table { width: 100%; border-collapse: collapse; font-size: 15px; white-space: nowrap; }
+        .styled-table thead tr { background-color: #0f172a; color: var(--text-main); }
+        .styled-table th, .styled-table td { padding: 15px; border-bottom: 1px solid var(--border-color); text-align: center; }
+        .styled-table td:nth-child(3) { text-align: left; font-weight: 600; color: var(--text-main); } 
+        .styled-table tbody tr:hover { background-color: rgba(255, 255, 255, 0.05); }
+
+        /* --- MODAL CHI TIẾT LỊCH DARK MODE --- */
+        .modal {
+            display: none; position: fixed; z-index: 1000; left: 0; top: 0;
+            width: 100%; height: 100%; background-color: rgba(0,0,0,0.7);
+            align-items: center; justify-content: center;
+        }
+        .modal-content {
+            background-color: var(--container-bg); padding: 25px; border-radius: 12px;
+            width: 90%; max-width: 400px; position: relative;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid var(--border-color);
+        }
+        .close-btn { position: absolute; top: 15px; right: 20px; font-size: 24px; font-weight: bold; color: var(--text-muted); cursor: pointer; }
+        .close-btn:hover { color: var(--text-main); }
+        .modal-item { margin-bottom: 12px; font-size: 15px; color: var(--text-main); }
+        .modal-item strong { color: var(--text-muted); display: inline-block; width: 100px; }
+        #modalTitle { margin-top: 0; color: #60a5fa; font-size: 1.3rem; }
+        #modalRoom { font-weight: bold; color: #f87171; }
+        #eventModal hr { border: 0; border-top: 1px solid var(--border-color); margin-bottom: 15px; }
+
+        /* (Giữ nguyên phần @media (max-width: 768px) cũ của bạn ở dưới dòng này) */
+
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            #calendar-wrapper { padding: 10px; margin-top: 10px; }
+            .fc-toolbar-title { font-size: 1.1em !important; }
+            .fc-header-toolbar { flex-direction: column; gap: 10px; }
+            
+            /* Ép FullCalendar biến sự kiện thành chấm tròn trên Mobile */
+            .fc-daygrid-day-events { 
+                display: flex !important; flex-wrap: wrap; 
+                justify-content: center; margin-top: 2px; gap: 2px;
+            }
+            .fc-daygrid-event-harness { 
+                position: static !important; display: inline-block !important; 
+            }
+            .fc-daygrid-event { 
+                background: transparent !important; border: none !important; margin: 0 !important; 
+            }
+            /* Ẩn chữ mặc định của FullCalendar để chừa chỗ cho thẻ div chấm tròn */
+            .fc-event-title-container, .fc-event-time { display: none !important; }
+        }
+
+        
+        .grade-header h2 { color: #2c3e50; margin-bottom: 5px; margin-top: 0; }
+        .login-box { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; max-width: 400px; }
+        .login-box input { padding: 12px; border: 1px solid #cbd5e0; border-radius: 6px; font-family: inherit; }
+        .login-box button {
+            background: #0984e3; color: white; border: none; padding: 12px; 
+            border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.3s;
+        }
+        .login-box button:hover { background: #74b9ff; }
+        .login-box button:disabled { background: #b2bec3; cursor: not-allowed; }
+        .error-text { color: #e53e3e; font-size: 13px; display: none; margin: 0; font-weight: 500; }
+
+        
+
+
+        /* --- CSS FORM ĐĂNG NHẬP HỢP NHẤT --- */
+        .auth-container {
+            background: white; padding: 30px; border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 400px;
+            text-align: center; margin: 20px auto;
+        }
+        .auth-container h2 { margin-top: 0; color: #2d3748; margin-bottom: 20px; font-size: 1.4rem; }
+        
+        .auth-tabs { display: flex; border-bottom: 2px solid #e2e8f0; margin-bottom: 20px; }
+        .tab-btn {
+            flex: 1; padding: 12px; background: none; border: none; outline: none;
+            font-weight: 700; font-size: 15px; color: #a0aec0; cursor: pointer;
+            transition: all 0.3s ease; border-bottom: 3px solid transparent; margin-bottom: -2px;
+        }
+        .tab-btn:hover { color: #3182ce; }
+        .tab-btn.active { color: #3182ce; border-bottom-color: #3182ce; }
+
+        .submit-btn {
+            width: 100%; padding: 12px; background-color: #3182ce;
+            color: white; border: none; border-radius: 6px; font-weight: bold;
+            cursor: pointer; transition: background 0.2s; font-size: 15px; margin-top: 5px;
+        }
+        .submit-btn:hover { background-color: #2b6cb0; }
+        .submit-btn:disabled { background-color: #a0aec0; cursor: not-allowed; }
+        .error-msg { color: #e53e3e; font-size: 13px; margin-top: 10px; display: none; font-weight: 500; }
+
+        /* --- CSS THANH NAVIGATION BAR --- */
+        .top-nav {
+            background-color: #111827; /* Màu xanh đen */
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            overflow-x: auto; /* Cuộn ngang trên điện thoại */
+        }
+        .nav-left, .nav-right { display: flex; align-items: center; gap: 5px; }
+        .nav-link {
+            color: #9ca3af; text-decoration: none; padding: 18px 15px;
+            font-size: 15px; font-weight: 600; border-bottom: 3px solid transparent;
+            transition: 0.3s; cursor: pointer; white-space: nowrap;
+        }
+        .nav-link:hover { color: #f3f4f6; }
+        .nav-link.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+    </style>
+</head>
+<body>
+    <nav class="top-nav">
+        <div class="nav-left">
+            <a class="nav-link" id="nav-tkb" onclick="openMenu('tkb')">Lịch học</a>
+            <a class="nav-link" id="nav-grade" onclick="openMenu('grade')">Điểm số</a>
+        </div>
+        <div class="nav-right">
+            <a class="nav-link active" id="nav-login" onclick="openMenu('login')">Đăng nhập</a>
+            <a class="nav-link" id="nav-logout" onclick="logout()" style="display: none; color: #f87171;">🚪 Đăng xuất</a>
+        </div>
+    </nav>
+
+    <!-- VÙNG HIỂN THỊ NỘI DUNG CHÍNH -->
+    <div class="content-wrapper">
+        <!-- Khung Đăng Nhập Hợp Nhất (Dark Mode toàn tập) -->
+        <div id="main-auth-container" class="auth-container">
+            <h2>Cổng Thông Tin Sinh Viên</h2>
+            
+            <!-- Thanh chuyển đổi Tabs -->
+            <div class="auth-tabs">
+                <button class="tab-btn active" onclick="switchTab('tkb')">📅 Lịch Học</button>
+                <button class="tab-btn" onclick="switchTab('grade')">🎓 Bảng Điểm</button>
+            </div>
+
+            <!-- Tab 1: Form TKB -->
+            <form id="loginForm" class="auth-form">
+                <div class="input-group">
+                    <label>Tài khoản (Mã SV)</label>
+                    <input type="text" id="username" required placeholder="Nhập mã sinh viên...">
+                </div>
+                <div class="input-group">
+                    <label>Mật khẩu</label>
+                    <input type="password" id="password" required placeholder="Nhập mật khẩu...">
+                </div>
+                <button type="submit" id="loginBtn" class="submit-btn">Đăng nhập & Lấy TKB</button>
+                <div id="errorMsg" class="error-msg"></div>
+            </form>
+
+            <!-- Tab 2: Form KMA Grades (Đã đổi thành thẻ <form> để dùng được phím Enter) -->
+            <form id="gradeForm" class="auth-form" style="display: none;" onsubmit="handleGradeSubmit(event)">
+                <div class="input-group">
+                    <label>Tài khoản Microsoft</label>
+                    <input type="text" id="kmaUsername" required placeholder="VD: CT06xxx@actvn.edu.vn">
+                </div>
+                <div class="input-group">
+                    <label>Mật khẩu</label>
+                    <input type="password" id="kmaPassword" required placeholder="Nhập mật khẩu Microsoft...">
+                </div>
+                <button type="submit" id="btnScrape" class="submit-btn">
+                    <span id="btnText">Đồng bộ điểm ngay</span>
+                    <span id="btnLoading" style="display: none;">Đang kết nối KMA... ⏳</span>
+                </button>
+                <p id="errorMessage" class="error-msg" style="display: none;"></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Khung Lịch Học -->
+    <div id="calendar-wrapper">
+        <div id='calendar'></div>
+        <div id="mobile-details"></div>
+    </div>
+
+   <!-- Bảng Hiển Thị Điểm (Đã gom ID ra ngoài cùng để ẩn toàn bộ) -->
+    <div class="grade-container" id="gradeTableContainer" style="display: none;">
+        <h2 style="color: var(--text-main); margin-top: 0; margin-bottom: 20px; font-size: 1.5rem;">🎓 Kết quả học tập</h2>
+        
+        <div class="table-responsive">
+            <table class="styled-table">
+                <thead>
+                    <tr>
+                        <th>Năm học</th>
+                        <th>HK</th>
+                        <th>Tên môn học</th>
+                        <th>Quá trình</th>
+                        <th>Cuối kỳ</th>
+                        <th>Học phần</th>
+                        <th>Điểm chữ</th>
+                    </tr>
+                </thead>
+                <tbody id="gradeTableBody">
+                    <!-- Dữ liệu JS sẽ render vào đây -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+        <!-- Bảng Hiển Thị Điểm (Ẩn mặc định) -->
+        <div class="table-responsive" id="gradeTableContainer" style="display: none;">
+            <table class="styled-table">
+                <thead>
+                    <tr>
+                        <th>Năm học</th>
+                        <th>HK</th>
+                        <th>Tên môn học</th>
+                        <th>Quá trình</th>
+                        <th>Cuối kỳ</th>
+                        <th>Học phần</th>
+                        <th>Điểm chữ</th>
+                    </tr>
+                </thead>
+                <tbody id="gradeTableBody">
+                    <!-- Dữ liệu JS sẽ render vào đây -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modal Chi Tiết Cho PC -->
+    <div id="eventModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+            <h3 id="modalTitle" style="margin-top: 0; color: #2b6cb0;">Tên môn học</h3>
+            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin-bottom: 15px;">
+            <div class="modal-item"><strong>Mã môn:</strong> <span id="modalCode"></span></div>
+            <div class="modal-item"><strong>Thời gian:</strong> <span id="modalTime"></span></div>
+            <div class="modal-item"><strong>Tiết học:</strong> <span id="modalPeriod"></span></div>
+            <div class="modal-item"><strong>Phòng học:</strong> <span id="modalRoom" style="font-weight:bold; color: #e53e3e;"></span></div>
+        </div>
+    </div>
+
+    <script>
+        // Khai báo biến toàn cục để theo dõi trạng thái
+        let tkbDone = false;
+        let gradeDone = false;
+
+        // Hàm điều khiển các màn hình chính
+        function openMenu(menu) {
+            // Xóa trạng thái sáng của tất cả các nút trên Navbar
+            document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+            
+            // Tắt hết mọi màn hình đi
+            document.getElementById('calendar-wrapper').style.display = 'none';
+            document.getElementById('gradeTableContainer').style.display = 'none';
+            document.getElementById('main-auth-container').style.display = 'none';
+
+            if (menu === 'tkb') {
+                document.getElementById('nav-tkb').classList.add('active');
+                if (tkbDone) {
+                    document.getElementById('calendar-wrapper').style.display = 'block';
+                    // Fix lỗi FullCalendar bị co cụm khi hiện lại
+                    setTimeout(() => window.dispatchEvent(new Event('resize')), 100); 
+                } else {
+                    alert("Vui lòng đăng nhập để xem Lịch học!");
+                    openMenu('login');
+                    switchTab('tkb');
+                }
+            } 
+            else if (menu === 'grade') {
+                document.getElementById('nav-grade').classList.add('active');
+                if (gradeDone) {
+                    document.getElementById('gradeTableContainer').style.display = 'block';
+                } else {
+                    alert("Vui lòng đăng nhập để xem Điểm số!");
+                    openMenu('login');
+                    switchTab('grade');
+                }
+            } 
+            else if (menu === 'login') {
+                document.getElementById('nav-login').classList.add('active');
+                document.getElementById('main-auth-container').style.display = 'block';
+            }
+        }
+    
+        // --- LOGIC GHI NHỚ ĐĂNG NHẬP ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedUser = localStorage.getItem('tkb_user');
+            const savedPass = localStorage.getItem('tkb_pass');
+            
+            if (savedUser && savedPass) {
+                document.getElementById('username').value = savedUser;
+                document.getElementById('password').value = savedPass;
+                // Tự động bấm nút đăng nhập
+                document.getElementById('loginBtn').click();
+            }
+        });
+
+        // Xử lý gửi Form Đăng nhập
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const user = document.getElementById('username').value;
+            const pass = document.getElementById('password').value;
+            const btn = document.getElementById('loginBtn');
+            const errorMsg = document.getElementById('errorMsg');
+
+            btn.disabled = true;
+            btn.innerText = "⏳ Đang kết nối...";
+            errorMsg.style.display = 'none';
+
+            fetch('/api/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: user, password: pass })
+            })
+            .then(async response => {
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Có lỗi xảy ra');
+                return data;
+            })
+            .then(eventsData => {
+                if(eventsData.length === 0) throw new Error('Không tìm thấy lịch học.');
+                
+                // Đăng nhập thành công -> Lưu dữ liệu
+                localStorage.setItem('tkb_user', user);
+                localStorage.setItem('tkb_pass', pass);
+                
+                tkbDone = true; 
+
+                document.getElementById('nav-login').style.display = 'none';
+                document.getElementById('nav-logout').style.display = 'block';
+
+                openMenu('tkb');
+                
+                setTimeout(() => {
+                    initCalendar(eventsData);
+                }, 50);
+            })
+            .catch(err => {
+                errorMsg.innerText = "❌ " + err.message;
+                errorMsg.style.display = 'block';
+                btn.disabled = false;
+                btn.innerText = "Đăng nhập & Lấy TKB";
+                
+                localStorage.removeItem('tkb_user');
+                localStorage.removeItem('tkb_pass');
+            });
+        });
+
+        // Hàm Đăng xuất
+        function logout() {
+            localStorage.removeItem('tkb_user');
+            localStorage.removeItem('tkb_pass');
+            window.location.reload(); // F5 lại trang
+        }
+
+        // Hàm chuyển đổi qua lại giữa 2 Tabs
+        function switchTab(tabId) {
+            const btns = document.querySelectorAll('.tab-btn');
+            btns.forEach(btn => btn.classList.remove('active'));
+            
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('gradeForm').style.display = 'none';
+
+            if (tabId === 'tkb') {
+                btns[0].classList.add('active');
+                document.getElementById('loginForm').style.display = 'block';
+            } else {
+                btns[1].classList.add('active');
+                document.getElementById('gradeForm').style.display = 'block';
+            }
+        }
+
+        // Tiện ích lấy ngày
+        function getLocalYMD(dateObj) {
+            return dateObj.getFullYear() + '-' + String(dateObj.getMonth() + 1).padStart(2, '0') + '-' + String(dateObj.getDate()).padStart(2, '0');
+        }
+
+        // ==========================================
+        // CÁC HÀM XỬ LÝ LỊCH FULLCALENDAR
+        // ==========================================
+        function initCalendar(eventsData) {
+            var calendarEl = document.getElementById('calendar');
+            const isMobile = window.innerWidth < 768;
+            
+            if (isMobile) {
+                document.getElementById('mobile-details').style.display = 'block';
+            }
+
+            var calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth', 
+                
+                headerToolbar: {
+                    left: 'prev,next',
+                    center: 'title',
+                    // Chỉ để lại nút 'Hôm nay', xóa nút chuyển 'Tháng/Tuần'
+                    right: 'today' 
+                },
+                
+                locale: 'vi',
+                buttonText: { today: 'Hôm nay' },
+                slotMinTime: "07:00:00", slotMaxTime: "18:00:00", allDaySlot: false,
+                dayMaxEvents: false,
+                
+                events: eventsData, 
+
+                eventContent: function(arg) {
+                    const colors = ['#4299e1', '#48bb78', '#ed8936', '#9f7aea', '#e53e3e'];
+                    let charCode = arg.event.title.charCodeAt(0);
+                    let bgColor = colors[charCode % colors.length];
+
+                    if (isMobile && arg.view.type === 'dayGridMonth') {
+                        return { html: `<div style="width: 8px; height: 8px; border-radius: 50%; background-color: ${bgColor}; display: inline-block;"></div>` };
+                    }
+                    
+                    // Tự lấy giờ bắt đầu và kết thúc thay vì dùng arg.timeText mặc định
+                    let startTime = arg.event.start.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'});
+                    let endTime = arg.event.end ? arg.event.end.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}) : '';
+                    let customTimeText = endTime ? `${startTime} - ${endTime}` : startTime;
+
+                    let shortName = arg.event.title.split('-')[0].trim(); 
+                    return {
+                        html: `
+                        <div style="padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: white;">
+                            <span style="font-size: 11px; font-weight: bold;">${customTimeText}</span> 
+                            <span style="font-size: 12px; margin-left: 2px;">${shortName}</span>
+                        </div>`
+                    };
+                },
+
+                eventDidMount: function(info) {
+                    const colors = ['#4299e1', '#48bb78', '#ed8936', '#9f7aea', '#e53e3e'];
+                    let charCode = info.event.title.charCodeAt(0);
+                    let bgColor = colors[charCode % colors.length];
+                    
+                    info.el.style.backgroundColor = bgColor;
+                    info.el.style.borderColor = bgColor;
+                },
+
+                dateClick: function(info) {
+                    if (isMobile) {
+                        highlightSelectedDay(info.dayEl);
+                        renderMobileDetails(info.date, calendar);
+                    }
+                },
+
+                eventClick: function(info) {
+                    if (isMobile && info.view.type === 'dayGridMonth') {
+                        const dateStr = getLocalYMD(info.event.start);
+                        const dayEl = document.querySelector(`.fc-day[data-date="${dateStr}"]`);
+                        
+                        highlightSelectedDay(dayEl);
+                        renderMobileDetails(info.event.start, calendar);
+                    } else {
+                        document.getElementById('modalTitle').innerText = info.event.title;
+                        document.getElementById('modalCode').innerText = info.event.extendedProps.code;
+                        document.getElementById('modalPeriod').innerText = info.event.extendedProps.period;
+                        document.getElementById('modalRoom').innerText = info.event.extendedProps.room;
+                        
+                        let startTime = info.event.start.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'});
+                        let endTime = info.event.end ? info.event.end.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}) : '...';
+                        document.getElementById('modalTime').innerText = `${startTime} - ${endTime}`;
+
+                        document.getElementById('eventModal').style.display = 'flex';
+                    }
+                }
+            });
+
+            // Lệnh vẽ Lịch
+            calendar.render();
+            document.body.style.justifyContent = 'flex-start'; 
+
+            if (isMobile) {
+                const today = new Date();
+                renderMobileDetails(today, calendar);
+                
+                setTimeout(() => {
+                    const todayStr = getLocalYMD(today);
+                    const todayEl = document.querySelector(`.fc-day[data-date="${todayStr}"]`);
+                    if (todayEl) highlightSelectedDay(todayEl);
+                }, 100);
+            }
+        }
+
+        function highlightSelectedDay(element) {
+            if(!element) return;
+            document.querySelectorAll('.fc-day').forEach(el => el.classList.remove('fc-day-selected'));
+            element.classList.add('fc-day-selected');
+        }
+
+        function renderMobileDetails(targetDate, calendar) {
+            const dateStrToMatch = getLocalYMD(targetDate);
+            const allEvents = calendar.getEvents();
+            
+            const dayEvents = allEvents.filter(e => {
+                return getLocalYMD(e.start) === dateStrToMatch;
+            });
+
+            const detailsDiv = document.getElementById('mobile-details');
+            const displayDate = targetDate.toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+            
+            let html = `<div class="mobile-date-title">Lịch học ${displayDate}</div>`;
+
+            if (dayEvents.length === 0) {
+                html += `<div class="no-event-text">Bạn không có lịch học nào trong ngày này! 🎉</div>`;
+            } else {
+                dayEvents.sort((a, b) => a.start - b.start).forEach(e => {
+                    let startTime = e.start.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'});
+                    let endTime = e.end ? e.end.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}) : '...';
+                    
+                    html += `
+                    <div class="mobile-card" style="border-left-color: ${e.backgroundColor}">
+                        <div class="m-time">🕒 ${startTime} - ${endTime} (Tiết ${e.extendedProps.period})</div>
+                        <div class="m-title">${e.title}</div>
+                        <div class="m-room">📍 Phòng: ${e.extendedProps.room} - Mã: ${e.extendedProps.code}</div>
+                    </div>`;
+                });
+            }
+            
+            detailsDiv.innerHTML = html;
+        }
+
+        function closeModal() { document.getElementById('eventModal').style.display = 'none'; }
+        window.onclick = function(event) {
+            let modal = document.getElementById('eventModal');
+            if (event.target == modal) modal.style.display = 'none';
+        }
+
+        function handleGradeSubmit(e) {
+            e.preventDefault(); // Chặn load lại trang khi bấm Enter
+            fetchGrades();
+        }
+
+        async function fetchGrades() {
+            const user = document.getElementById('kmaUsername').value;
+            const pass = document.getElementById('kmaPassword').value;
+            const btn = document.getElementById('btnScrape');
+            const errorMsg = document.getElementById('errorMessage');
+
+            if (!user || !pass) {
+                errorMsg.textContent = "❌ Vui lòng nhập đủ tài khoản và mật khẩu!";
+                errorMsg.style.display = "block";
+                return;
+            }
+
+            // Hiển thị trạng thái Loading
+            errorMsg.style.display = "none";
+            btn.disabled = true;
+            document.getElementById('btnText').style.display = "none";
+            document.getElementById('btnLoading').style.display = "inline";
+
+            try {
+                const response = await fetch('/api/get_grades', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: user, password: pass })
+                });
+                
+                const result = await response.json();
+
+                if (result.status === "success") {
+                    gradeDone = true;
+                    
+                    // Đổi nút thành công & hiển thị nút Đăng xuất trên Navbar
+                    document.getElementById('btnScrape').innerHTML = "✅ Đã đồng bộ Điểm";
+                    document.getElementById('btnScrape').style.backgroundColor = "#10b981";
+                    document.getElementById('nav-login').style.display = 'none';
+                    document.getElementById('nav-logout').style.display = 'block';
+                    
+                    const tbody = document.getElementById('gradeTableBody');
+                    tbody.innerHTML = "";
+
+                    result.data.forEach(mon => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${mon.nam_hoc}</td>
+                            <td>${mon.hoc_ky}</td>
+                            <td>${mon.ten_mon}</td>
+                            <td>${mon.diem_qt !== '' ? mon.diem_qt : '-'}</td>
+                            <td>${mon.diem_ck !== '' ? mon.diem_ck : '-'}</td>
+                            <td><b>${mon.diem_hp !== '' ? mon.diem_hp : '-'}</b></td>
+                            <td style="font-weight: bold; color: ${getColorForGrade(mon.diem_chu)};">${mon.diem_chu}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                    
+                    openMenu('grade'); // Chuyển thẳng sang màn hình Điểm
+                } else {
+                    errorMsg.textContent = "❌ " + result.message;
+                    errorMsg.style.display = "block";
+                }
+            } catch (error) {
+                errorMsg.textContent = "❌ Lỗi kết nối đến máy chủ. Vui lòng thử lại.";
+                errorMsg.style.display = "block";
+            } finally {
+                btn.disabled = false;
+                document.getElementById('btnText').style.display = "inline";
+                document.getElementById('btnLoading').style.display = "none";
+            }
+        }
+
+        function getColorForGrade(grade) {
+            if (['A+', 'A'].includes(grade)) return '#4ade80'; // Xanh lá sáng (Neon)
+            if (['B+', 'B'].includes(grade)) return '#60a5fa'; // Xanh dương sáng (Neon)
+            if (['C+', 'C'].includes(grade)) return '#facc15'; // Vàng sáng
+            if (['D+', 'D'].includes(grade)) return '#fb923c'; // Cam sáng
+            if (grade === 'F') return '#f87171'; // Đỏ sáng (Neon)
+            return '#cbd5e1'; // Xám nhạt mặc định
+        }
+
+
+    </script>
+</body>
+</html>
