@@ -1,3 +1,5 @@
+import sys
+import os
 from flask import Flask, jsonify, render_template, request
 from bs4 import BeautifulSoup
 import re
@@ -182,10 +184,10 @@ def parse_grades_from_soup(soup):
 
 async def fetch_kma_grades(username, password):
     # Cấu hình các đường link quan trọng
-    INITIAL_LOGIN_URL = 'https://login.microsoftonline.com/0aa16d8a-a396-4e21-aa14-2a68a45786bc/oauth2/v2.0/authorize?response_type=code&client_id=fbad147e-ffd3-419f-989a-7aceae620f77&redirect_uri=https%3A%2F%2Fktdbcl.actvn.edu.vn%2Findex.php%2Faksociallogin_finishLogin%2Fmicrosoft.raw&scope=user.read&response_mode=query'
+    INITIAL_LOGIN_URL = 'https://login.microsoftonline.com/0aa16d8a-a396-4e21-aa14-2a68a45786bc/oauth2/v2.0/authorize?response_type=code&client_id=fbad147e-ffd3-419f-989a-7aceae620f77&redirect_uri=https%3A%2F%2Fktdbcl.actvn.edu.vn%2Findex.php%2Faksociallogin_finishLogin%2Fmicrosoft.raw&scope=user.read&response_mode=query&sso_reload=true'
     GCT_URL = 'https://login.microsoftonline.com/common/GetCredentialType?mkt=en-US'
     POST_URL = 'https://login.microsoftonline.com/0aa16d8a-a396-4e21-aa14-2a68a45786bc/login'
-    GRADE_URL = 'https://ktdbcl.actvn.edu.vn/khao-thi/hvsv/xem-diem-thi.html'
+    GRADE_URL = 'https://ktdbcl.actvn.edu.vn/hvsv.html?view=learnerexams'
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -198,9 +200,9 @@ async def fetch_kma_grades(username, password):
             # [0] KHỞI TẠO PHIÊN VỚI TRƯỜNG ĐỂ NHẬN SESSION COOKIE JOOMLA
             try:
                 async with session.get('https://ktdbcl.actvn.edu.vn/dang-nhap.html', headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as init_ktdbcl:
-                    print(f"[DEBUG] Khởi tạo web trường status: {init_ktdbcl.status}")
+                    print(f"[DEBUG] Web truong init status: {init_ktdbcl.status}")
             except Exception as e:
-                print(f"[WARN] Không thể kết nối trước tới ktdbcl.actvn.edu.vn: {e}")
+                print(f"[WARN] Cannot pre-connect to ktdbcl.actvn.edu.vn: {e}")
 
             # [1] LẤY TOKEN MỒI TỪ MICROSOFT
             async with session.get(INITIAL_LOGIN_URL, headers=headers) as res1:
@@ -211,8 +213,23 @@ async def fetch_kma_grades(username, password):
                     'canary': extract_token([r"""['"]canary['"]\s*:\s*['"]([^'"]+)['"]""", r"""name=['"]canary['"]\s+value=['"]([^'"]+)['"]"""], html1),
                     'hpgrequestid': extract_token([r"""['"]sessionId['"]\s*:\s*['"]([^'"]+)['"]""", r"""name=['"]hpgrequestid['"]\s+value=['"]([^'"]+)['"]"""], html1)
                 }
+
+                # Bổ sung trích xuất trực tiếp từ $Config JSON nếu regex chưa lấy được
+                if not tokens['flowToken'] or not tokens['ctx']:
+                    cfg_match = re.search(r'\$Config\s*=\s*({.+?});', html1)
+                    if cfg_match:
+                        try:
+                            import json
+                            cfg = json.loads(cfg_match.group(1))
+                            if not tokens['flowToken']: tokens['flowToken'] = str(cfg.get('sFT') or cfg.get('flowToken') or '')
+                            if not tokens['ctx']: tokens['ctx'] = str(cfg.get('sCtx') or cfg.get('ctx') or '')
+                            if not tokens['canary']: tokens['canary'] = str(cfg.get('canary') or cfg.get('apiCanary') or '')
+                            if not tokens['hpgrequestid']: tokens['hpgrequestid'] = str(cfg.get('sessionId') or cfg.get('correlationId') or '')
+                        except Exception:
+                            pass
+
                 if not tokens['flowToken']:
-                    print("[ERROR] Không lấy được flowToken từ Microsoft")
+                    print("[ERROR] Cannot extract flowToken from Microsoft")
                     return {"status": "error", "message": "Không lấy được Token khởi tạo từ hệ thống Microsoft."}
 
             # [2] XÁC THỰC USERNAME
