@@ -18,13 +18,9 @@ PERIOD_TIME_MAP = {
 }
 
 
-# --- HÀM 1: ĐĂNG NHẬP VÀ LẤY HTML (TÍCH HỢP TỪ TEST_LOGIN) ---
-async def fetch_html_async(username, password):
-    # ==============================================================
-    # BẠN HÃY THAY LẠI 2 ĐƯỜNG LINK NÀY GIỐNG NHƯ TRONG FILE TEST
-    # ==============================================================
+# --- HÀM 1: ĐĂNG NHẬP VÀ TRẢ VỀ SESSION COOKIE ---
+async def fetch_session_async(username, password):
     login_url = "http://qldt.actvn.edu.vn/CMCSoft.IU.Web.Info/Login.aspx"
-    tkb_url = "http://qldt.actvn.edu.vn/CMCSoft.IU.Web.Info/StudyRegister/StudyRegister.aspx"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -32,123 +28,135 @@ async def fetch_html_async(username, password):
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     }
     
-    async with aiohttp.ClientSession(headers=headers) as session:
-        try:
-            # 1. Lấy Token ẩn
-            async with session.get(login_url) as init_res:
-                if init_res.status != 200: return None
-                soup = BeautifulSoup(await init_res.text(), 'html.parser')
-                
-                viewstate = soup.find('input', id='__VIEWSTATE')
-                viewstate_gen = soup.find('input', id='__VIEWSTATEGENERATOR')
-                event_validation = soup.find('input', id='__EVENTVALIDATION')
-                
-                lang_dropdown = soup.find('select', id='PageHeader1_drpNgonNgu')
-                lang_value = lang_dropdown.find('option', selected=True)['value'] if lang_dropdown and lang_dropdown.find('option', selected=True) else 'E43296C6F24C4410A894F46D57D2D3AB'
-
-            # 2. Gửi Payload Đăng nhập
-            payload = {
-                '__EVENTTARGET': '',
-                '__EVENTARGUMENT': '',
-                '__LASTFOCUS': '',
-                '__VIEWSTATE': viewstate['value'] if viewstate else '',
-                '__VIEWSTATEGENERATOR': viewstate_gen['value'] if viewstate_gen else '',
-                '__EVENTVALIDATION': event_validation['value'] if event_validation else '',
-                'PageHeader1$drpNgonNgu': lang_value,
-                'PageHeader1$hidisNotify': '0',
-                'PageHeader1$hidValueNotify': '.',
-                'txtUserName': username,
-                'txtPassword': password,
-                'btnSubmit': 'Đăng nhập',
-                'hidUserId': '',
-                'hidUserFullName': ''
-            }
-            
-            async with session.post(login_url, data=payload) as login_res:
-                # Bỏ qua kiểm tra status vì có thể bị redirect (302) khi login thành công
-                pass 
-                
-            # 3. Kéo dữ liệu TKB
-            async with session.get(tkb_url) as tkb_res:
-                if tkb_res.status == 200:
-                    return await tkb_res.text()
+    # Tạo session trả về cho bên ngoài dùng
+    session = aiohttp.ClientSession(headers=headers)
+    try:
+        # 1. Lấy Token ẩn
+        async with session.get(login_url) as init_res:
+            if init_res.status != 200: 
+                await session.close()
                 return None
-        except Exception as e:
-            print(f"Lỗi hệ thống mạng: {e}")
-            return None
-
-# --- HÀM 2: BÓC TÁCH DỮ LIỆU HTML THÀNH SỰ KIỆN CHO LỊCH ---
-def parse_schedule_to_events(html_content):
-    if not html_content:
-        return []
-        
-    soup = BeautifulSoup(html_content, 'html.parser')
-    events = []
-    
-    # Quét bắt đầu từ mã _0, _1, ...
-    course_name_tags = soup.find_all('span', id=re.compile(r'^gridRegistered_lblCourseClass_\d+$'))
-    
-    for course_tag in course_name_tags:
-        idx = course_tag['id'].split('_')[-1]
-        
-        course_code_tag = soup.find('span', id=f'gridRegistered_lblCourseCode_{idx}')
-        time_location_tag = soup.find('span', id=f'gridRegistered_lblLongTime_{idx}')
-        location_tag = soup.find('span', id=f'gridRegistered_lblLocation_{idx}')
-        
-        course_name = course_tag.text.strip()
-        course_code = course_code_tag.text.strip() if course_code_tag else "Không có mã"
-        room_name = location_tag.text.strip() if location_tag else "Chưa có phòng"
-        
-        if time_location_tag:
-            raw_text = time_location_tag.get_text(separator="\n", strip=True).replace('\xa0', ' ')
-            date_blocks = raw_text.split('Từ')
+            soup = BeautifulSoup(await init_res.text(), 'html.parser')
             
-            for block in date_blocks:
-                if 'đến' not in block: continue
-                
-                date_match = re.search(r'(\d{2}/\d{2}/\d{4})\s*đến\s*(\d{2}/\d{2}/\d{4})', block)
-                if not date_match: continue
-                
-                start_date_str, end_date_str = date_match.groups()
-                start_date = datetime.strptime(start_date_str, "%d/%m/%Y")
-                end_date = datetime.strptime(end_date_str, "%d/%m/%Y")
-                
-                schedule_matches = re.finditer(r'(Thứ\s+(\d)|Chủ Nhật)\s*tiết\s*([\d,]+)', block, re.IGNORECASE)
-                
-                for match in schedule_matches:
-                    day_of_week = int(match.group(2)) - 2 if match.group(2) else 6
-                    periods = [int(p) for p in match.group(3).split(',')]
-                    
-                    start_period = min(periods)
-                    end_period = max(periods)
-                    
-                    current_date = start_date
-                    while current_date <= end_date:
-                        if current_date.weekday() == day_of_week:
-                            date_str = current_date.strftime("%Y-%m-%d")
-                            start_time_str = PERIOD_TIME_MAP.get(start_period, ("00:00", "00:00"))[0]
-                            end_time_str = PERIOD_TIME_MAP.get(end_period, ("00:00", "23:59"))[1]
-                            
-                            events.append({
-                                "title": course_name,
-                                "start": f"{date_str}T{start_time_str}:00",
-                                "end": f"{date_str}T{end_time_str}:00",
-                                "extendedProps": {
-                                    "room": room_name,
-                                    "period": match.group(3),
-                                    "code": course_code
-                                }
-                            })
-                        current_date += timedelta(days=1)
-                        
-    return events
+            viewstate = soup.find('input', id='__VIEWSTATE')
+            viewstate_gen = soup.find('input', id='__VIEWSTATEGENERATOR')
+            event_validation = soup.find('input', id='__EVENTVALIDATION')
+            
+            lang_dropdown = soup.find('select', id='PageHeader1_drpNgonNgu')
+            lang_value = lang_dropdown.find('option', selected=True)['value'] if lang_dropdown and lang_dropdown.find('option', selected=True) else 'E43296C6F24C4410A894F46D57D2D3AB'
+
+        # 2. Gửi Payload Đăng nhập
+        payload = {
+            '__EVENTTARGET': '',
+            '__EVENTARGUMENT': '',
+            '__LASTFOCUS': '',
+            '__VIEWSTATE': viewstate['value'] if viewstate else '',
+            '__VIEWSTATEGENERATOR': viewstate_gen['value'] if viewstate_gen else '',
+            '__EVENTVALIDATION': event_validation['value'] if event_validation else '',
+            'PageHeader1$drpNgonNgu': lang_value,
+            'PageHeader1$hidisNotify': '0',
+            'PageHeader1$hidValueNotify': '.',
+            'txtUserName': username,
+            'txtPassword': password,
+            'btnSubmit': 'Đăng nhập',
+            'hidUserId': '',
+            'hidUserFullName': ''
+        }
+        
+        async with session.post(login_url, data=payload) as login_res:
+            # Bỏ qua kiểm tra status vì có thể bị redirect (302) khi login thành công
+            pass 
+            
+        return session # Trả về toàn bộ session đã đăng nhập thành công
+    except Exception as e:
+        print(f"Lỗi hệ thống mạng: {e}")
+        await session.close()
+        return None
+
+
+# --- HÀM 2: BÓC TÁCH DỮ LIỆU HTML ---
+def parse_schedule_html(html_content):
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    table = soup.find('table', id='gridRegistered')
+    schedule_data = []
+
+    if not table:
+        print("❌ Không tìm thấy bảng thời khóa biểu (ID: gridRegistered).")
+        return schedule_data
+
+    rows = table.find_all('tr', class_=['cssListItem', 'cssListAlternativeItem'])
+
+    for row in rows:
+        cols = row.find_all('td')
+        
+        if len(cols) >= 9:
+            subject = {
+                "stt": cols[0].text.strip(),
+                "lop_hoc_phan": cols[1].text.strip(),
+                "ma_hoc_phan": cols[2].text.strip(),
+                "thoi_gian": cols[3].get_text(separator='\n', strip=True),
+                "dia_diem": cols[4].text.strip(),
+                "giang_vien": cols[5].text.strip(),
+                "si_so": cols[6].text.strip(),
+                "so_tin_chi": cols[8].text.strip()
+            }
+            schedule_data.append(subject)
+
+    return schedule_data
+
+# --- HÀM 3: FETCH DATA THEO HỌC KỲ ---
+async def fetch_schedule_data(session, url_thoi_khoa_bieu, target_semester="1_2026_2027"):
+    async with session.get(url_thoi_khoa_bieu) as response_get:
+        # SỬA LỖI Ở ĐÂY: Dùng .read() thay vì .text()
+        html_get = await response_get.read() 
+    
+    soup_get = BeautifulSoup(html_get, 'html.parser')
+
+    drp_semester = soup_get.find('select', {'name': 'drpSemester'})
+    semester_hash_value = None
+    
+    if drp_semester:
+        for option in drp_semester.find_all('option'):
+            if option.text.strip() == target_semester:
+                semester_hash_value = option['value']
+                break
+
+    if not semester_hash_value:
+        print(f"❌ Không tìm thấy học kỳ {target_semester} trong danh sách dropdown.")
+        return []
+
+    payload = {}
+    for input_tag in soup_get.find_all('input'):
+        name = input_tag.get('name')
+        if name:
+            payload[name] = input_tag.get('value', '')
+            
+    for select_tag in soup_get.find_all('select'):
+        name = select_tag.get('name')
+        if name:
+            selected_option = select_tag.find('option', selected=True)
+            if selected_option:
+                payload[name] = selected_option.get('value', '')
+            else:
+                first_option = select_tag.find('option')
+                payload[name] = first_option.get('value', '') if first_option else ''
+
+    payload['__EVENTTARGET'] = 'drpSemester'
+    payload['__EVENTARGUMENT'] = ''
+    payload['drpSemester'] = semester_hash_value
+
+    async with session.post(url_thoi_khoa_bieu, data=payload) as response_post:
+        # SỬA LỖI Ở ĐÂY: Dùng .read() thay vì .text()
+        html_post = await response_post.read() 
+    
+    return parse_schedule_html(html_post)
 
 
 # ==============================================================================
 # HÀM BỔ SUNG: CÀO BẢNG ĐIỂM KMA QUA MICROSOFT SSO
 # ==============================================================================
 
-# Hàm chuyên dụng để trích xuất Token từ JavaScript của Microsoft
 def extract_token(patterns, text):
     for pattern in patterns:
         match = re.search(pattern, text)
@@ -157,7 +165,6 @@ def extract_token(patterns, text):
     return ""
 
 def parse_grades_from_soup(soup):
-    """Trích xuất danh sách điểm từ BeautifulSoup của trang bảng điểm."""
     rows = soup.find_all('tr')
     mon_hoc_list = []
 
@@ -183,7 +190,6 @@ def parse_grades_from_soup(soup):
     return mon_hoc_list
 
 async def fetch_kma_grades(username, password):
-    # Cấu hình các đường link quan trọng
     INITIAL_LOGIN_URL = 'https://login.microsoftonline.com/0aa16d8a-a396-4e21-aa14-2a68a45786bc/oauth2/v2.0/authorize?response_type=code&client_id=fbad147e-ffd3-419f-989a-7aceae620f77&redirect_uri=https%3A%2F%2Fktdbcl.actvn.edu.vn%2Findex.php%2Faksociallogin_finishLogin%2Fmicrosoft.raw&scope=user.read&response_mode=query&sso_reload=true'
     GCT_URL = 'https://login.microsoftonline.com/common/GetCredentialType?mkt=en-US'
     POST_URL = 'https://login.microsoftonline.com/0aa16d8a-a396-4e21-aa14-2a68a45786bc/login'
@@ -197,14 +203,12 @@ async def fetch_kma_grades(username, password):
 
     async with aiohttp.ClientSession() as session:
         try:
-            # [0] KHỞI TẠO PHIÊN VỚI TRƯỜNG ĐỂ NHẬN SESSION COOKIE JOOMLA
             try:
                 async with session.get('https://ktdbcl.actvn.edu.vn/dang-nhap.html', headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as init_ktdbcl:
-                    print(f"[DEBUG] Web truong init status: {init_ktdbcl.status}")
+                    pass
             except Exception as e:
-                print(f"[WARN] Cannot pre-connect to ktdbcl.actvn.edu.vn: {e}")
+                pass
 
-            # [1] LẤY TOKEN MỒI TỪ MICROSOFT
             async with session.get(INITIAL_LOGIN_URL, headers=headers) as res1:
                 html1 = await res1.text()
                 tokens = {
@@ -214,7 +218,6 @@ async def fetch_kma_grades(username, password):
                     'hpgrequestid': extract_token([r"""['"]sessionId['"]\s*:\s*['"]([^'"]+)['"]""", r"""name=['"]hpgrequestid['"]\s+value=['"]([^'"]+)['"]"""], html1)
                 }
 
-                # Bổ sung trích xuất trực tiếp từ $Config JSON nếu regex chưa lấy được
                 if not tokens['flowToken'] or not tokens['ctx']:
                     cfg_match = re.search(r'\$Config\s*=\s*({.+?});', html1)
                     if cfg_match:
@@ -229,10 +232,8 @@ async def fetch_kma_grades(username, password):
                             pass
 
                 if not tokens['flowToken']:
-                    print("[ERROR] Cannot extract flowToken from Microsoft")
                     return {"status": "error", "message": "Không lấy được Token khởi tạo từ hệ thống Microsoft."}
 
-            # [2] XÁC THỰC USERNAME
             gct_payload = {
                 "checkPhones": True, "country": "VN", "federationFlags": 0, "flowToken": tokens['flowToken'], 
                 "forceotclogin": False, "isAccessPassSupported": True, "isCookieBannerShown": False,
@@ -252,7 +253,6 @@ async def fetch_kma_grades(username, password):
                 else:
                     return {"status": "error", "message": "Sai tài khoản hoặc máy chủ Microsoft từ chối yêu cầu."}
 
-            # [3] GỬI PASSWORD & XỬ LÝ SSO REDIRECTS
             login_payload = {
                 'login': username, 'loginfmt': username, 'type': '11', 'LoginOptions': '3',
                 'lrt': '', 'lrtPartition': '', 'hisRegion': '', 'hisScaleUnit': '',
@@ -266,7 +266,6 @@ async def fetch_kma_grades(username, password):
             callback_url = ""
 
             async with session.post(POST_URL, data=login_payload, headers=headers_form, allow_redirects=False) as login_res:
-                print(f"[DEBUG] POST login status: {login_res.status}")
                 if login_res.status in (302, 303):
                     callback_url = login_res.headers.get('Location')
                 elif login_res.status == 200:
@@ -283,7 +282,6 @@ async def fetch_kma_grades(username, password):
                             form_payload.update({'LoginOptions': '1', 'type': '28', 'DontShowAgain': 'true', 'i19': '38600'})
                             
                         async with session.post(action_url, data=form_payload, headers=headers_form, allow_redirects=False) as form_res:
-                            print(f"[DEBUG] Form KMSI status: {form_res.status}")
                             if form_res.status in (302, 303):
                                 callback_url = form_res.headers.get('Location')
                             elif form_res.status == 200:
@@ -299,7 +297,6 @@ async def fetch_kma_grades(username, password):
                             if redirect_url.startswith('/'): redirect_url = "https://login.microsoftonline.com" + redirect_url
                                 
                             async with session.post(redirect_url, data=login_payload, headers=headers_form, allow_redirects=False) as sso_res:
-                                print(f"[DEBUG] sso_reload status: {sso_res.status}")
                                 if sso_res.status in (302, 303):
                                     callback_url = sso_res.headers.get('Location')
                                 elif sso_res.status == 200:
@@ -323,7 +320,6 @@ async def fetch_kma_grades(username, password):
                                         }
                                     
                                     async with session.post(action_url2, data=form_payload2, headers=headers_form, allow_redirects=False) as form_res2:
-                                        print(f"[DEBUG] form_res2 status: {form_res2.status}")
                                         if form_res2.status in (302, 303):
                                             callback_url = form_res2.headers.get('Location')
                                         elif form_res2.status == 200:
@@ -337,27 +333,21 @@ async def fetch_kma_grades(username, password):
                                                 redirect_url = redirect_url.encode('utf-8').decode('unicode_escape')
                                                 if redirect_url.startswith('/'): redirect_url = "https://login.microsoftonline.com" + redirect_url
                                                 async with session.post(redirect_url, data=form_payload2, headers=headers_form, allow_redirects=False) as final_hop:
-                                                    print(f"[DEBUG] final_hop status: {final_hop.status}")
                                                     if final_hop.status in (302, 303): callback_url = final_hop.headers.get('Location')
                                                     elif final_hop.status == 200:
                                                         final_html = await final_hop.text()
                                                         code_match = re.search(r"""(https://[^'"]*actvn\.edu\.vn[^'"]*[?&]code=[^'"]+)""", final_html)
                                                         if code_match: callback_url = code_match.group(1).replace(r'\/', '/').replace(r'\u0026', '&')
 
-            print(f"[DEBUG] callback_url: {callback_url}")
-
-            # [4] XỬ LÝ VÀ NỘP MÃ XÁC THỰC CHO TRƯỜNG
             if not callback_url or 'actvn.edu.vn' not in callback_url:
                 return {"status": "error", "message": "Sai mật khẩu hoặc tài khoản bị Microsoft chặn đăng nhập tự động."}
 
-            # Kiểm tra xem Microsoft có trả về lỗi OAuth hay không
             if 'error=' in callback_url:
                 import urllib.parse
                 parsed = urllib.parse.urlparse(callback_url)
                 params = urllib.parse.parse_qs(parsed.query)
                 err_code = params.get('error', ['unknown'])[0]
                 err_desc = params.get('error_description', [''])[0]
-                print(f"[ERROR] Microsoft OAuth Error: {err_code} - {err_desc}")
 
                 if 'AADSTS50076' in err_desc or 'AADSTS50079' in err_desc:
                     return {"status": "error", "message": "Tài khoản yêu cầu Xác thực 2 bước (MFA). Vui lòng đăng nhập trên trình duyệt trước."}
@@ -369,11 +359,9 @@ async def fetch_kma_grades(username, password):
                 return {"status": "error", "message": "Microsoft không trả về mã xác thực (Authorization Code)."}
 
             async with session.get(callback_url, headers=headers, allow_redirects=True) as final_auth_res:
-                print(f"[DEBUG] final_auth_res status: {final_auth_res.status}, url: {final_auth_res.url}")
+                pass
 
-            # [5] TRUY CẬP TRANG ĐÍCH VÀ ÉP HIỂN THỊ TẤT CẢ
             async with session.get(GRADE_URL, headers=headers, allow_redirects=True) as grade_res:
-                print(f"[DEBUG] grade_res status: {grade_res.status}, url: {grade_res.url}")
                 html_content = await grade_res.text()
 
             if grade_res.status == 404:
@@ -389,10 +377,8 @@ async def fetch_kma_grades(username, password):
 
             soup_diem = BeautifulSoup(html_content, 'html.parser')
 
-            # Thử bóc tách trực tiếp nếu bảng điểm đã hiển thị sẵn mà không cần bấm nút phân trang
             initial_grades = parse_grades_from_soup(soup_diem)
 
-            # Tìm Form phân trang (nếu có) để tải trọn vẹn tất cả các môn
             form_list = soup_diem.find('form', id='adminForm')
             if not form_list:
                 form_list = soup_diem.find(lambda tag: tag.name == 'form' and tag.find('input', {'name': 'list[limit]'}))
@@ -414,11 +400,9 @@ async def fetch_kma_grades(username, password):
                         if grades:
                             return {"status": "success", "data": grades}
             
-            # Nếu không có form phân trang hoặc post form không trả về data nhưng trang ban đầu đã có điểm
             if initial_grades:
                 return {"status": "success", "data": initial_grades}
 
-            # Kiểm tra xem có thông báo không có điểm hay không
             alert_box = soup_diem.find(class_=re.compile(r'alert|message', re.IGNORECASE))
             if alert_box and alert_box.text.strip():
                 return {"status": "error", "message": f"Thông báo từ hệ thống trường: {alert_box.text.strip()}"}
@@ -426,9 +410,7 @@ async def fetch_kma_grades(username, password):
             return {"status": "error", "message": "Không tìm thấy dữ liệu bảng điểm trên trang web của trường."}
                 
         except Exception as e:
-            print(f"[ERROR] fetch_kma_grades exception: {e}")
             return {"status": "error", "message": f"Lỗi hệ thống: {str(e)}"}
-
 
 
 # --- ROUTING FLASK ---
@@ -438,7 +420,6 @@ def index():
 
 @app.route('/api/schedule', methods=['POST'])
 def get_schedule():
-    # Frontend gửi user/pass lên qua chuẩn JSON
     data = request.json
     username = data.get('username')
     password = data.get('password')
@@ -446,15 +427,25 @@ def get_schedule():
     if not username or not password:
         return jsonify({"error": "Vui lòng nhập đầy đủ Tài khoản và Mật khẩu!"}), 400
 
-    # Khởi chạy hàm cào dữ liệu bất đồng bộ
+    # Tạo một hàm async phụ trợ bên trong để chạy chuỗi công việc
+    async def process_schedule():
+        session = await fetch_session_async(username, password)
+        if not session:
+            return None
+        url_thoi_khoa_bieu = "http://qldt.actvn.edu.vn/CMCSoft.IU.Web.Info/Reports/Form/StudentTimeTable.aspx"
+        events = await fetch_schedule_data(session, url_thoi_khoa_bieu, "1_2026_2027")
+        await session.close()
+        return events
+
     try:
-        html_content = asyncio.run(fetch_html_async(username,password))
+        # Gọi asyncio.run() giống như cách làm của bảng điểm
+        events = asyncio.run(process_schedule())
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"error": f"Server error: {e}"}), 500
     
-    if html_content:
-        events = parse_schedule_to_events(html_content)
+    # Kiểm tra kết quả trả về
+    if events is not None:
         if len(events) == 0:
             return jsonify({"error": "Đăng nhập thành công nhưng không tìm thấy dữ liệu Thời khóa biểu!"}), 404
         return jsonify(events)
@@ -471,9 +462,7 @@ def api_get_grades():
     if not username or not password:
         return jsonify({"status": "error", "message": "Thiếu tài khoản hoặc mật khẩu"}), 400
         
-    # Gọi hàm async trong môi trường đồng bộ của Flask
     result = asyncio.run(fetch_kma_grades(username, password))
-    
     return jsonify(result)
 
 
